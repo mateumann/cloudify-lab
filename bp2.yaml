@@ -89,7 +89,7 @@ node_templates:
         install_method: none
       resource_config:
         name: { concat: [ { get_input: name_prefix }, '_server' ] }
-        user_data: { get_input: install_script }
+#        user_data: { get_input: install_script }
         image_id: { get_input: image }
         flavor_id: { get_input: flavor }
     relationships:
