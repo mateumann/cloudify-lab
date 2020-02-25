@@ -61,6 +61,14 @@ dsl_definitions:
     project_name: { get_input: project_name }
     region_name: { get_input: region_name }
 
+node_types:
+  myDBMS:
+    derived_from: cloudify.nodes.DBMS
+    properties:
+      foo:
+        type: string
+        required: true
+
 node_templates:
 
   external-network:
@@ -184,7 +192,7 @@ node_templates:
               default: web_server
 
   db_server:
-    type: cloudify.nodes.DBMS
+    type: myDBMS
     properties:
       foo: bar
     relationships:
