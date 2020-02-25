@@ -86,7 +86,8 @@ node_templates:
     properties:
       client_config: *client_config
       agent_config:
-        install_method: none
+        key: { get_attribute: [keypair, private_key] }
+        user: centos
       resource_config:
         name: { concat: [ { get_input: name_prefix }, '_server' ] }
 #        user_data: { get_input: install_script }
