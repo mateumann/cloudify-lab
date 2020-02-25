@@ -1,0 +1,199 @@
+tosca_definitions_version: cloudify_dsl_1_3
+
+description: >
+  This blueprint installs a simple web server on an already running VM using Cloudify's script plugin.
+
+imports:
+  - http://www.getcloudify.org/spec/cloudify/5.1.0.dev1/types.yaml
+  - plugin:cloudify-openstack-plugin
+
+inputs:
+  auth_url:
+    type: string
+    default: { get_secret: openstack_url }
+
+  username:
+    type: string
+    default: { get_secret: openstack_username }
+
+  password:
+    type: string
+    default: { get_secret: openstack_password }
+
+  project_name:
+    type: string
+    default: { get_secret: openstack_tenant_name }
+
+  region_name:
+    type: string
+
+  external_network_id:
+    type: string
+    description: A network that provisions floating IPs.
+
+  image:
+    type: string
+    description: The UUID of an Ubuntu Trusty 14.04 image in your Openstack account.
+
+  flavor:
+    type: string
+    description: The UUID of small flavor in your Openstack account.
+
+  name_prefix:
+    type: string
+    default: hellow_world
+
+
+
+plugins:
+  my_plugin:
+    executor: host_agent
+    source: my_plugin
+    package_name: my_plugin
+    package_version: "0.1"
+
+dsl_definitions:
+
+  client_config: &client_config
+    auth_url: { get_input: auth_url }
+    username: { get_input: username }
+    password: { get_input: password }
+    project_name: { get_input: project_name }
+    region_name: { get_input: region_name }
+
+node_templates:
+
+  external-network:
+    type: cloudify.nodes.openstack.Network
+    properties:
+      client_config: *client_config
+      use_external_resource: true
+      resource_config:
+        id: { get_input: external_network_id }
+        kwargs:
+          routing:
+            external: true
+
+  keypair:
+    type: cloudify.nodes.openstack.KeyPair
+    properties:
+      use_external_resource: true
+      resource_config:
+        id: mateusz_neumann_codilime_com
+      client_config: *client_config
+
+  vm:
+    type: cloudify.nodes.openstack.Server
+    properties:
+      client_config: *client_config
+      agent_config:
+        install_method: init_script
+        user: centos
+        process_management:
+          name: systemd
+      resource_config:
+        name: { concat: [ { get_input: name_prefix }, '_server' ] }
+        image_id: { get_input: image }
+        flavor_id: { get_input: flavor }
+    relationships:
+      - type: cloudify.relationships.openstack.server_connected_to_port
+        target: port
+      - type: cloudify.relationships.openstack.server_connected_to_keypair
+        target: keypair
+
+  port:
+    type: cloudify.nodes.openstack.Port
+    properties:
+      client_config: *client_config
+      resource_config:
+        name: { concat: [ { get_input: name_prefix }, '_port' ] }
+        fixed_ips:
+          - subnet_id: { get_attribute: [ subnet, id ] }
+    relationships:
+      - type: cloudify.relationships.contained_in
+        target: network
+      - type: cloudify.relationships.depends_on
+        target: subnet
+      - type: cloudify.relationships.connected_to
+        target: security_group
+      - type: cloudify.relationships.openstack.port_connected_to_floating_ip
+        target: ip
+
+  subnet:
+    type: cloudify.nodes.openstack.Subnet
+    properties:
+      use_external_resource: true
+      resource_config:
+        id: 3d0ceb7b-72ea-4193-a945-a5bcafd16cd3
+      client_config: *client_config
+
+  network:
+    type: cloudify.nodes.openstack.Network
+    properties:
+      use_external_resource: true
+      resource_config:
+        id: 3f4e7ade-016b-470e-ba8a-44ab87de2716
+      client_config: *client_config
+
+  router:
+    type: cloudify.nodes.openstack.Router
+    properties:
+      use_external_resource: true
+      resource_config:
+        id: 9ea9593a-5995-4d68-8576-43d0c39261e2
+      client_config: *client_config
+    relationships:
+      - type: cloudify.relationships.connected_to
+        target: external-network
+
+  security_group:
+    type: cloudify.nodes.openstack.SecurityGroup
+    properties:
+      use_external_resource: true
+      resource_config:
+        id: default
+      client_config: *client_config
+
+  ip:
+    type: cloudify.nodes.openstack.FloatingIP
+    properties:
+      client_config: *client_config
+    relationships:
+      - type: cloudify.relationships.connected_to
+        target: external-network
+
+  http_web_server:
+    type: cloudify.nodes.WebServer
+    instances:
+      deploy: 2
+    relationships:
+      - type: cloudify.relationships.contained_in
+        target: vm
+      - type: cloudify.relationships.depends_on
+        target: db_server
+        source_interfaces:
+          cloudify.interfaces.relationship_lifecycle:
+            postconfigure:
+              implementation: my_plugin.training.rel_postconfigure
+    interfaces:
+      cloudify.interfaces.lifecycle:
+        configure:
+          implementation: my_plugin.training.configure
+          inputs:
+            service_name:
+              default: web_server
+
+  db_server:
+    type: cloudify.nodes.DBMS
+    properties:
+      foo: bar
+    relationships:
+      - type: cloudify.relationships.contained_in
+        target: vm
+    interfaces:
+      cloudify.interfaces.lifecycle:
+        configure:
+          implementation: my_plugin.training.configure
+          inputs:
+            service_name:
+              default: { get_property: [ SELF, foo]}
