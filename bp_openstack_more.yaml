@@ -44,7 +44,6 @@ inputs:
     default: hellow_world
 
 
-
 plugins:
   my_plugin:
     executor: host_agent
@@ -52,14 +51,15 @@ plugins:
     package_name: my_plugin
     package_version: "0.1"
 
-dsl_definitions:
 
+dsl_definitions:
   client_config: &client_config
     auth_url: { get_input: auth_url }
     username: { get_input: username }
     password: { get_input: password }
     project_name: { get_input: project_name }
     region_name: { get_input: region_name }
+
 
 node_types:
   myDBMS:
@@ -69,8 +69,8 @@ node_types:
         type: string
         required: true
 
-node_templates:
 
+node_templates:
   external-network:
     type: cloudify.nodes.openstack.Network
     properties:
@@ -81,16 +81,15 @@ node_templates:
         kwargs:
           routing:
             external: true
-
   keypair:
     type: cloudify.nodes.openstack.KeyPair
     properties:
+      client_config: *client_config
       use_external_resource: true
       resource_config:
         id: mateusz_neumann_codilime_com
-      client_config: *client_config
 
-  vm:
+  vm1:
     type: cloudify.nodes.openstack.Server
     properties:
       client_config: *client_config
@@ -100,21 +99,40 @@ node_templates:
         process_management:
           name: systemd
       resource_config:
-        name: { concat: [ { get_input: name_prefix }, '_server' ] }
+        name: { concat: [ { get_input: name_prefix }, '_vm1' ] }
         image_id: { get_input: image }
         flavor_id: { get_input: flavor }
     relationships:
       - type: cloudify.relationships.openstack.server_connected_to_port
-        target: port
+        target: port1
       - type: cloudify.relationships.openstack.server_connected_to_keypair
         target: keypair
 
-  port:
+  vm2:
+    type: cloudify.nodes.openstack.Server
+    properties:
+      client_config: *client_config
+      agent_config:
+        install_method: init_script
+        user: centos
+        process_management:
+          name: systemd
+      resource_config:
+        name: { concat: [ { get_input: name_prefix }, '_vm2' ] }
+        image_id: { get_input: image }
+        flavor_id: { get_input: flavor }
+    relationships:
+      - type: cloudify.relationships.openstack.server_connected_to_port
+        target: port2
+      - type: cloudify.relationships.openstack.server_connected_to_keypair
+        target: keypair
+
+  port1:
     type: cloudify.nodes.openstack.Port
     properties:
       client_config: *client_config
       resource_config:
-        name: { concat: [ { get_input: name_prefix }, '_port' ] }
+        name: { concat: [ { get_input: name_prefix }, '_port1' ] }
         fixed_ips:
           - subnet_id: { get_attribute: [ subnet, id ] }
     relationships:
@@ -125,7 +143,25 @@ node_templates:
       - type: cloudify.relationships.connected_to
         target: security_group
       - type: cloudify.relationships.openstack.port_connected_to_floating_ip
-        target: ip
+        target: ip1
+
+  port2:
+    type: cloudify.nodes.openstack.Port
+    properties:
+      client_config: *client_config
+      resource_config:
+        name: { concat: [ { get_input: name_prefix }, '_port2' ] }
+        fixed_ips:
+          - subnet_id: { get_attribute: [ subnet, id ] }
+    relationships:
+      - type: cloudify.relationships.contained_in
+        target: network
+      - type: cloudify.relationships.depends_on
+        target: subnet
+      - type: cloudify.relationships.connected_to
+        target: security_group
+      - type: cloudify.relationships.openstack.port_connected_to_floating_ip
+        target: ip2
 
   subnet:
     type: cloudify.nodes.openstack.Subnet
@@ -162,7 +198,15 @@ node_templates:
         id: default
       client_config: *client_config
 
-  ip:
+  ip1:
+    type: cloudify.nodes.openstack.FloatingIP
+    properties:
+      client_config: *client_config
+    relationships:
+      - type: cloudify.relationships.connected_to
+        target: external-network
+
+  ip2:
     type: cloudify.nodes.openstack.FloatingIP
     properties:
       client_config: *client_config
@@ -176,7 +220,7 @@ node_templates:
       deploy: 2
     relationships:
       - type: cloudify.relationships.contained_in
-        target: vm
+        target: vm1
       - type: cloudify.relationships.depends_on
         target: db_server
         source_interfaces:
@@ -196,7 +240,7 @@ node_templates:
       foo: bar
     relationships:
       - type: cloudify.relationships.contained_in
-        target: vm
+        target: vm2
     interfaces:
       cloudify.interfaces.lifecycle:
         configure:
