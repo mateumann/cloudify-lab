@@ -46,10 +46,10 @@ inputs:
 
 
 plugins:
-  lab1:
+  my_plugin:
     executor: host_agent
-    source: lab1
-    package_name: lab1
+    source: my_plugin
+    package_name: my_plugin
     package_version: "0.1"
 
 dsl_definitions:
@@ -60,6 +60,14 @@ dsl_definitions:
     password: { get_input: password }
     project_name: { get_input: project_name }
     region_name: { get_input: region_name }
+
+node_types:
+  myDBMS:
+    derived_from: cloudify.nodes.DBMS
+    properties:
+      foo:
+        type: string
+        required: true
 
 node_templates:
 
@@ -89,9 +97,10 @@ node_templates:
       agent_config:
         install_method: init_script
         user: centos
+        process_management:
+          name: systemd
       resource_config:
         name: { concat: [ { get_input: name_prefix }, '_server' ] }
-#        user_data: { get_input: install_script }
         image_id: { get_input: image }
         flavor_id: { get_input: flavor }
     relationships:
@@ -99,12 +108,6 @@ node_templates:
         target: port
       - type: cloudify.relationships.openstack.server_connected_to_keypair
         target: keypair
-    # This is only run on local mode. For use with a manager, it can be commented out.
-  #    interfaces:
-  #      cloudify.interfaces.lifecycle:
-  #        create:
-  #          inputs:
-  #            resource_config: { get_property: [ SELF, resource_config ] }
 
   port:
     type: cloudify.nodes.openstack.Port
@@ -123,97 +126,41 @@ node_templates:
         target: security_group
       - type: cloudify.relationships.openstack.port_connected_to_floating_ip
         target: ip
-    # This is only run on local mode. For use with a manager, it can be commented out.
-  #    interfaces:
-  #      cloudify.interfaces.lifecycle:
-  #        create:
-  #          inputs:
-  #            resource_config: { get_property: [ SELF, resource_config ] }
 
   subnet:
     type: cloudify.nodes.openstack.Subnet
     properties:
-      client_config: *client_config
+      use_external_resource: true
       resource_config:
-        name: { concat: [ { get_input: name_prefix }, '_subnet' ] }
-        ip_version: 4
-        cidr: 10.10.4.0/24
-        dns_nameservers: [8.8.4.4, 8.8.8.8]
-        allocation_pools:
-          - start: 10.10.4.2
-            end: 10.10.4.254
-    relationships:
-      - type: cloudify.relationships.contained_in
-        target: network
-      - type: cloudify.relationships.openstack.subnet_connected_to_router
-        target: router
-    # This is only run on local mode. For use with a manager, it can be commented out.
-  #    interfaces:
-  #      cloudify.interfaces.lifecycle:
-  #        create:
-  #          inputs:
-  #            resource_config: { get_property: [ SELF, resource_config ] }
+        id: 3d0ceb7b-72ea-4193-a945-a5bcafd16cd3
+      client_config: *client_config
 
   network:
     type: cloudify.nodes.openstack.Network
     properties:
-      client_config: *client_config
+      use_external_resource: true
       resource_config:
-        name: { concat: [ { get_input: name_prefix }, '_net' ] }
+        id: 3f4e7ade-016b-470e-ba8a-44ab87de2716
+      client_config: *client_config
 
   router:
     type: cloudify.nodes.openstack.Router
     properties:
-      client_config: *client_config
+      use_external_resource: true
       resource_config:
-        name: { concat: [ { get_input: name_prefix }, '_router' ] }
+        id: 9ea9593a-5995-4d68-8576-43d0c39261e2
+      client_config: *client_config
     relationships:
       - type: cloudify.relationships.connected_to
         target: external-network
-    # This is only run on local mode. For use with a manager, it can be commented out.
-  #    interfaces:
-  #      cloudify.interfaces.lifecycle:
-  #        create:
-  #          inputs:
-  #            resource_config: { get_property: [ SELF, resource_config ] }
 
   security_group:
     type: cloudify.nodes.openstack.SecurityGroup
     properties:
-      client_config: *client_config
-      security_group_rules:
-        - remote_ip_prefix: 0.0.0.0/0
-          port_range_max: 80
-          port_range_min: 80
-          direction: ingress
-          protocol: tcp
-
-        - remote_ip_prefix: 0.0.0.0/0
-          port_range_max: 80
-          port_range_min: 80
-          direction: egress
-          protocol: tcp
-
-        - remote_ip_prefix: 0.0.0.0/0
-          port_range_max: 22
-          port_range_min: 22
-          direction: ingress
-          protocol: tcp
-
-        - remote_ip_prefix: 0.0.0.0/0
-          port_range_max: 22
-          port_range_min: 22
-          direction: egress
-          protocol: tcp
-
+      use_external_resource: true
       resource_config:
-        name: { concat: [ { get_input: name_prefix }, 'agent_sg' ] }
-        description: 'A security group created by Cloudify OpenStack SDK plugin.'
-  #    interfaces:
-  #      cloudify.interfaces.lifecycle:
-  #        create:
-  #          inputs:
-  #            resource_config: { get_property: [ SELF, resource_config ] }
+        id: default
+      client_config: *client_config
 
   ip:
     type: cloudify.nodes.openstack.FloatingIP
@@ -222,17 +169,37 @@ node_templates:
     relationships:
       - type: cloudify.relationships.connected_to
         target: external-network
-  #    interfaces:
-  #      cloudify.interfaces.lifecycle:
-  #        create:
-  #          inputs:
-  #            resource_config: { get_property: [ SELF, resource_config ] }
 
   http_web_server:
     type: cloudify.nodes.WebServer
+    instances:
+      deploy: 2
+    relationships:
+      - type: cloudify.relationships.contained_in
+        target: vm
+      - type: cloudify.relationships.depends_on
+        target: db_server
+        source_interfaces:
+          cloudify.interfaces.relationship_lifecycle:
+            postconfigure:
+              implementation: my_plugin.training.rel_postconfigure
+    interfaces:
+      cloudify.interfaces.lifecycle:
+        configure:
+          implementation: my_plugin.training.configure
+          inputs:
+            service_name: web_server
+
+  db_server:
+    type: myDBMS
+    properties:
+      foo: bar
     relationships:
       - type: cloudify.relationships.contained_in
         target: vm
     interfaces:
       cloudify.interfaces.lifecycle:
-        start: lab1.lab1.start
+        configure:
+          implementation: my_plugin.training.configure
+          inputs:
+            service_name: { get_property: [ SELF, foo]}
